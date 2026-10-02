@@ -4,8 +4,45 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { NavigationItem, Student, Teacher, SupportStaff, AttendanceRecord, FeeInvoice, Notice, SchoolSettings, ToastMessage, ExamMark, Homework, Parent, StudentTransport, TeacherTransport, TransportVehicle, TransportRoute, UserSession } from './types';
+import { NavigationItem, Student, Teacher, SupportStaff, AttendanceRecord, FeeInvoice, Notice, SchoolSettings, ToastMessage, ExamMark, Homework, Parent, StudentTransport, TeacherTransport, TransportVehicle, TransportRoute, UserSession, ClassRoom, Subject, TimetableSlot } from './types';
 import { isNavAllowed, DEMO_USERS } from './utils/rbac';
+import {
+  isSupabaseConfigured,
+  authenticateSupabaseUser,
+  fetchStudentsFromSupabase,
+  insertStudentToSupabase,
+  updateStudentInSupabase,
+  deleteStudentFromSupabase,
+  fetchTeachersFromSupabase,
+  insertTeacherToSupabase,
+  fetchSupportStaffFromSupabase,
+  insertSupportStaffToSupabase,
+  updateSupportStaffInSupabase,
+  deleteSupportStaffFromSupabase,
+  fetchInvoicesFromSupabase,
+  insertInvoiceToSupabase,
+  updateInvoiceStatusInSupabase,
+  fetchAttendanceFromSupabase,
+  saveAttendanceToSupabase,
+  fetchNoticesFromSupabase,
+  insertNoticeToSupabase,
+  fetchHomeworkFromSupabase,
+  insertHomeworkToSupabase,
+  fetchExamMarksFromSupabase,
+  insertExamMarkToSupabase,
+  fetchParentsFromSupabase,
+  insertParentToSupabase,
+  fetchStudentTransportsFromSupabase,
+  insertStudentTransportToSupabase,
+  deleteStudentTransportFromSupabase,
+  fetchVehiclesFromSupabase,
+  fetchRoutesFromSupabase,
+  fetchSchoolSettingsFromSupabase,
+  saveSchoolSettingsToSupabase,
+  fetchClassesFromSupabase,
+  fetchSubjectsFromSupabase,
+  fetchTimetableFromSupabase
+} from './utils/supabase';
 import {
   INITIAL_SETTINGS,
   INITIAL_STUDENTS,
@@ -178,7 +215,86 @@ export default function App() {
     return saved ? JSON.parse(saved) : INITIAL_ROUTES;
   });
 
+  const [classes, setClasses] = useState<ClassRoom[]>(INITIAL_CLASSES);
+  const [subjects, setSubjects] = useState<Subject[]>(INITIAL_SUBJECTS);
+  const [timetable, setTimetable] = useState<TimetableSlot[]>(INITIAL_TIMETABLE);
+
   const [activePlanId, setActivePlanId] = useState<string>('growth');
+
+  // Supabase Initial & Background Live Synchronization
+  useEffect(() => {
+    let isMounted = true;
+    async function syncFromSupabase() {
+      if (!isSupabaseConfigured()) return;
+      try {
+        if (currentUser?.email) {
+          await authenticateSupabaseUser(currentUser.email);
+        }
+
+        const [
+          remoteStudents,
+          remoteTeachers,
+          remoteStaff,
+          remoteInvoices,
+          remoteAttendance,
+          remoteNotices,
+          remoteHomework,
+          remoteMarks,
+          remoteParents,
+          remoteST,
+          remoteVehicles,
+          remoteRoutes,
+          remoteSettings,
+          remoteClasses,
+          remoteSubjects,
+          remoteTimetable
+        ] = await Promise.all([
+          fetchStudentsFromSupabase(),
+          fetchTeachersFromSupabase(),
+          fetchSupportStaffFromSupabase(),
+          fetchInvoicesFromSupabase(currentUser?.role, currentUser?.email),
+          fetchAttendanceFromSupabase(),
+          fetchNoticesFromSupabase(),
+          fetchHomeworkFromSupabase(),
+          fetchExamMarksFromSupabase(),
+          fetchParentsFromSupabase(),
+          fetchStudentTransportsFromSupabase(),
+          fetchVehiclesFromSupabase(),
+          fetchRoutesFromSupabase(),
+          fetchSchoolSettingsFromSupabase(),
+          fetchClassesFromSupabase(),
+          fetchSubjectsFromSupabase(),
+          fetchTimetableFromSupabase()
+        ]);
+
+        if (!isMounted) return;
+
+        if (remoteStudents !== null) setStudents(remoteStudents);
+        if (remoteTeachers && remoteTeachers.length > 0) setTeachers(remoteTeachers);
+        if (remoteStaff && remoteStaff.length > 0) setSupportStaff(remoteStaff);
+        if (remoteInvoices && remoteInvoices.length > 0) setInvoices(remoteInvoices);
+        if (remoteAttendance && remoteAttendance.length > 0) setAttendanceRecords(remoteAttendance);
+        if (remoteNotices && remoteNotices.length > 0) setNotices(remoteNotices);
+        if (remoteHomework && remoteHomework.length > 0) setHomeworkList(remoteHomework);
+        if (remoteMarks && remoteMarks.length > 0) setExamMarks(remoteMarks);
+        if (remoteParents && remoteParents.length > 0) setParentsList(remoteParents);
+        if (remoteST && remoteST.length > 0) setStudentTransports(remoteST);
+        if (remoteVehicles && remoteVehicles.length > 0) setVehicles(remoteVehicles);
+        if (remoteRoutes && remoteRoutes.length > 0) setRoutes(remoteRoutes);
+        if (remoteSettings) setSettings(remoteSettings);
+        if (remoteClasses && remoteClasses.length > 0) setClasses(remoteClasses);
+        if (remoteSubjects && remoteSubjects.length > 0) setSubjects(remoteSubjects);
+        if (remoteTimetable && remoteTimetable.length > 0) setTimetable(remoteTimetable);
+      } catch (err) {
+        console.warn('Supabase sync background notice:', err);
+      }
+    }
+
+    syncFromSupabase();
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser]);
 
   // LocalStorage Effects
   useEffect(() => {
@@ -245,6 +361,7 @@ export default function App() {
   // Transport Handlers
   const handleAddStudentTransport = (st: StudentTransport) => {
     setStudentTransports((prev) => [st, ...prev]);
+    insertStudentTransportToSupabase(st).catch((err) => console.warn('Supabase student transport error:', err));
     showToast('Transport Assigned', `Student transport assigned for ${st.studentName}.`);
   };
 
@@ -255,6 +372,7 @@ export default function App() {
 
   const handleDeleteStudentTransport = (id: string) => {
     setStudentTransports((prev) => prev.filter((item) => item.id !== id));
+    deleteStudentTransportFromSupabase(id).catch((err) => console.warn('Supabase delete transport error:', err));
     showToast('Transport Assignment Removed', 'Student transport assignment deleted.');
   };
 
@@ -304,23 +422,57 @@ export default function App() {
   };
 
   // Actions
-  const handleAddStudent = (newStu: Omit<Student, 'id'>) => {
+  const handleAddStudent = async (newStu: Omit<Student, 'id'>) => {
+    const tempId = `STU-${1000 + students.length + 1}`;
     const created: Student = {
       ...newStu,
-      id: `STU-${1000 + students.length + 1}`
+      id: tempId
     };
+    // Immediate UI update
     setStudents((prev) => [created, ...prev]);
-    showToast('Student Registered', `${created.firstName} ${created.lastName} added to student directory.`);
+
+    try {
+      const saved = await insertStudentToSupabase(created);
+      if (saved) {
+        setStudents((prev) => prev.map((s) => (s.id === tempId ? saved : s)));
+        showToast('Student Registered', `${saved.firstName} ${saved.lastName} registered in database.`);
+      } else {
+        showToast('Student Registered', `${created.firstName} ${created.lastName} added locally.`);
+      }
+    } catch (err) {
+      console.warn('Supabase student save warning:', err);
+      showToast('Student Registered', `${created.firstName} ${created.lastName} added to directory.`);
+    }
   };
 
-  const handleUpdateStudent = (updatedStu: Student) => {
+  const handleUpdateStudent = async (updatedStu: Student) => {
     setStudents((prev) => prev.map((s) => (s.id === updatedStu.id ? updatedStu : s)));
-    showToast('Record Updated', `Student ${updatedStu.firstName} ${updatedStu.lastName} updated.`);
+    try {
+      const success = await updateStudentInSupabase(updatedStu);
+      if (success) {
+        showToast('Record Updated', `Student ${updatedStu.firstName} ${updatedStu.lastName} updated in database.`);
+      } else {
+        showToast('Record Updated', `Student ${updatedStu.firstName} ${updatedStu.lastName} updated.`);
+      }
+    } catch (err) {
+      console.warn('Supabase student update warning:', err);
+      showToast('Record Updated', `Student ${updatedStu.firstName} ${updatedStu.lastName} updated.`);
+    }
   };
 
-  const handleDeleteStudent = (id: string) => {
+  const handleDeleteStudent = async (id: string) => {
     setStudents((prev) => prev.filter((s) => s.id !== id));
-    showToast('Student Deleted', 'Record removed from directory.', 'info');
+    try {
+      const success = await deleteStudentFromSupabase(id);
+      if (success) {
+        showToast('Student Deleted', 'Student record deleted from database.', 'info');
+      } else {
+        showToast('Student Deleted', 'Record removed from directory.', 'info');
+      }
+    } catch (err) {
+      console.warn('Supabase student delete warning:', err);
+      showToast('Student Deleted', 'Record removed from directory.', 'info');
+    }
   };
 
   const handleAddTeacher = (newTch: Omit<Teacher, 'id'>) => {
@@ -329,6 +481,7 @@ export default function App() {
       id: `TCH-${200 + teachers.length + 1}`
     };
     setTeachers((prev) => [created, ...prev]);
+    insertTeacherToSupabase(created).catch((err) => console.warn('Supabase teacher save warning:', err));
     showToast('Instructor Added', `${created.name} added to faculty list.`);
   };
 
@@ -338,16 +491,19 @@ export default function App() {
       id: `SUP-${Date.now()}`
     };
     setSupportStaff((prev) => [created, ...prev]);
+    insertSupportStaffToSupabase(created).catch((err) => console.warn('Supabase staff save warning:', err));
     showToast('Support Employee Added', `${created.name} added to support staff directory.`);
   };
 
   const handleUpdateSupportStaff = (updatedStaff: SupportStaff) => {
     setSupportStaff((prev) => prev.map((s) => (s.id === updatedStaff.id ? updatedStaff : s)));
+    updateSupportStaffInSupabase(updatedStaff).catch((err) => console.warn('Supabase staff update warning:', err));
     showToast('Record Updated', `Support employee ${updatedStaff.name} updated.`);
   };
 
   const handleDeleteSupportStaff = (id: string) => {
     setSupportStaff((prev) => prev.filter((s) => s.id !== id));
+    deleteSupportStaffFromSupabase(id).catch((err) => console.warn('Supabase staff delete warning:', err));
     showToast('Employee Removed', 'Support staff record removed from directory.', 'info');
   };
 
@@ -358,6 +514,7 @@ export default function App() {
       );
       return [...records, ...filtered];
     });
+    saveAttendanceToSupabase(records).catch((err) => console.warn('Supabase attendance save warning:', err));
     showToast('Attendance Logged', 'Class register saved successfully.');
   };
 
@@ -367,13 +524,16 @@ export default function App() {
       id: `INV-${Date.now()}`
     };
     setInvoices((prev) => [created, ...prev]);
+    insertInvoiceToSupabase(created, currentUser?.role).catch((err) => console.warn('Supabase invoice save warning:', err));
     showToast('Invoice Issued', `Invoice ${created.invoiceNo} created for ${created.studentName}.`);
   };
 
   const handleUpdateInvoiceStatus = (invoiceId: string, status: 'Paid' | 'Pending' | 'Overdue') => {
+    const paidDate = status === 'Paid' ? new Date().toISOString().split('T')[0] : undefined;
     setInvoices((prev) =>
-      prev.map((i) => (i.id === invoiceId ? { ...i, status, paidDate: status === 'Paid' ? new Date().toISOString().split('T')[0] : i.paidDate } : i))
+      prev.map((i) => (i.id === invoiceId ? { ...i, status, paidDate: paidDate || i.paidDate } : i))
     );
+    updateInvoiceStatusInSupabase(invoiceId, status, paidDate, currentUser?.role).catch((err) => console.warn('Supabase invoice update warning:', err));
     showToast('Payment Updated', `Invoice status marked as ${status}.`);
   };
 
@@ -383,6 +543,7 @@ export default function App() {
       id: `NTC-${Date.now()}`
     };
     setNotices((prev) => [created, ...prev]);
+    insertNoticeToSupabase(created).catch((err) => console.warn('Supabase notice save warning:', err));
     showToast('Announcement Published', `Notice "${created.title}" broadcasted.`);
   };
 
@@ -392,6 +553,7 @@ export default function App() {
       id: `MRK-${Date.now()}`
     };
     setExamMarks((prev) => [created, ...prev]);
+    insertExamMarkToSupabase(created).catch((err) => console.warn('Supabase mark save warning:', err));
     showToast('Mark Recorded', `Score saved for ${created.studentName}.`);
   };
 
@@ -401,6 +563,7 @@ export default function App() {
       id: `HW-${Date.now()}`
     };
     setHomeworkList((prev) => [created, ...prev]);
+    insertHomeworkToSupabase(created).catch((err) => console.warn('Supabase homework save warning:', err));
     showToast('Homework Published', `Assignment created for ${created.className}.`);
   };
 
@@ -410,6 +573,7 @@ export default function App() {
       id: `PAR-${Date.now()}`
     };
     setParentsList((prev) => [created, ...prev]);
+    insertParentToSupabase(created).catch((err) => console.warn('Supabase parent save warning:', err));
     showToast('Parent Registered', `${created.name} profile created.`);
   };
 
@@ -493,9 +657,9 @@ export default function App() {
       case 'homework':
         return (
           <AcademicsView
-            classes={INITIAL_CLASSES}
-            subjects={INITIAL_SUBJECTS}
-            timetable={INITIAL_TIMETABLE}
+            classes={classes}
+            subjects={subjects}
+            timetable={timetable}
             homework={homeworkList}
             onAddHomework={handleAddHomework}
             activeSubTab={currentNav}
@@ -507,7 +671,7 @@ export default function App() {
         return (
           <AttendanceView
             students={students}
-            classes={INITIAL_CLASSES}
+            classes={classes}
             attendanceRecords={attendanceRecords}
             onSaveAttendance={handleSaveAttendance}
           />
@@ -623,6 +787,7 @@ export default function App() {
             settings={settings}
             onSaveSettings={(newSet) => {
               setSettings(newSet);
+              saveSchoolSettingsToSupabase(newSet).catch((err) => console.warn('Supabase settings save warning:', err));
               showToast('Settings Saved', 'School information and preferences updated.');
             }}
           />
